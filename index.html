@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Codenames: Porrinero Edition</title>
+    
+    <!-- Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-database-compat.js"></script>
+
+    <style>
+        * { box-sizing: border-box; }
+
+        :root {
+            --bg-color: #121212;
+            --surface-color: #1e1e1e;
+            --card-neutral: #bdbdbd;
+            --card-red: #d32f2f;
+            --card-blue: #1976d2;
+            --card-black: #212121;
+            --accent: #00e676;
+            --text-main: #fff;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            overflow-x: hidden;
+            padding-bottom: 80px;
+        }
+
+        /* ANIMACIÓN DE MUERTE */
+        @keyframes shake {
+            0% { transform: translate(1px, 1px) rotate(0deg); }
+            10% { transform: translate(-1px, -2px) rotate(-1deg); }
+            20% { transform: translate(-3px, 0px) rotate(1deg); }
+            30% { transform: translate(3px, 2px) rotate(0deg); }
+            40% { transform: translate(1px, -1px) rotate(1deg); }
+            50% { transform: translate(-1px, 2px) rotate(-1deg); }
+            60% { transform: translate(-3px, 1px) rotate(0deg); }
+            70% { transform: translate(3px, 1px) rotate(-1deg); }
+            80% { transform: translate(-1px, -1px) rotate(1deg); }
+            90% { transform: translate(1px, 2px) rotate(0deg); }
+            100% { transform: translate(1px, -2px) rotate(-1deg); }
+        }
+        .shake-screen {
+            animation: shake 0.5s;
+            animation-iteration-count: infinite;
+            background-color: #3e0000 !important;
+        }
+
+        /* HEADER */
+        header {
+            background: var(--surface-color);
+            width: 100%;
+            padding: 10px 0;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            position: sticky;
+            top: 0;
+            z-index: 20;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .top-row { display: flex; justify-content: space-between; width: 95%; align-items: center; }
+        h1 { margin: 0; font-size: 1rem; letter-spacing: 1px; color: #aaa; }
+        
+        .room-input-group { display: flex; gap: 5px; }
+        .room-input-group input { background: #333; border: none; color: white; padding: 5px; border-radius: 4px; width: 80px; text-align: center; }
+        .btn-mini { background: var(--accent); border: none; padding: 5px 10px; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.8rem; }
+        
+        /* BOTÓN MUTE */
+        #btnMute { font-size: 1rem; background: #444; color: white; width: 35px; padding: 5px 0; display: flex; justify-content: center; }
+        #btnMute.muted { background: #d32f2f; }
+
+        /* MARCADOR */
+        .scoreboard {
+            display: grid; grid-template-columns: 1fr auto 1fr; width: 95%; gap: 10px; align-items: center;
+            background: #000; padding: 8px; border-radius: 12px; margin-top: 5px;
+        }
+        .team-box { display: flex; flex-direction: column; align-items: center; }
+        .team-name-input {
+            background: transparent; border: none; border-bottom: 1px solid #444; color: white;
+            text-align: center; width: 100%; font-size: 0.9rem; margin-bottom: 2px;
+        }
+        .score-num { font-size: 1.8rem; font-weight: 900; line-height: 1; }
+        .red-text { color: var(--card-red); }
+        .blue-text { color: var(--card-blue); }
+
+        /* TURNO */
+        .turn-container { display: flex; gap: 10px; align-items: center; margin-bottom: 5px; }
+        .turn-badge {
+            padding: 5px 15px; border-radius: 20px; font-weight: bold; font-size: 0.9rem; 
+            background: #333; border: 1px solid #555; display: flex; align-items: center; gap: 5px;
+        }
+        .btn-pass {
+            background: #ff9800; border: none; padding: 5px 15px; border-radius: 20px; 
+            font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 5px;
+        }
+
+        /* TABLERO */
+        #game-board {
+            display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px;
+            width: 96%; max-width: 800px; margin-top: 15px; aspect-ratio: 1 / 0.75;
+        }
+        .card {
+            background-color: var(--card-neutral); color: #222; border-radius: 4px;
+            display: flex; align-items: center; justify-content: center; text-align: center;
+            padding: 2px; font-weight: 800; text-transform: uppercase;
+            font-size: clamp(0.55rem, 2.2vw, 1.1rem); cursor: pointer; user-select: none;
+            box-shadow: 0 3px 0 #888; transition: transform 0.1s; hyphens: auto; position: relative;
+        }
+        .card:active { transform: translateY(2px); box-shadow: 0 1px 0 #888; }
+
+        /* ESTADOS */
+        .card.revealed { cursor: default; box-shadow: inset 0 0 10px rgba(0,0,0,0.3) !important; transform: none !important; color: white; }
+        .card.revealed.red { background-color: var(--card-red); }
+        .card.revealed.blue { background-color: var(--card-blue); }
+        .card.revealed.neutral { background-color: #795548; opacity: 0.6; }
+        .card.revealed.black { background-color: var(--card-black); border: 2px solid #fff; }
+
+        /* MODO ESPÍA VISIBLE */
+        body.spymaster .card:not(.revealed).red { border: 3px solid var(--card-red); background: #ffebee; color: #b71c1c; }
+        body.spymaster .card:not(.revealed).blue { border: 3px solid var(--card-blue); background: #e3f2fd; color: #0d47a1; }
+        body.spymaster .card:not(.revealed).black { 
+            border: 4px solid #000; background: #333; color: #ff5252; box-shadow: inset 0 0 15px #000;
+        }
+        body.spymaster .card:not(.revealed).neutral { border: 3px solid #8d6e63; background: #efebe9; color: #5d4037; }
+
+        /* BOTONES FLOTANTES */
+        .floating-controls { margin-top: 20px; display: flex; flex-direction: column; gap: 10px; width: 90%; max-width: 400px; }
+        .btn-big { padding: 12px; border: none; border-radius: 8px; font-weight: bold; font-size: 1rem; cursor: pointer; text-transform: uppercase; width: 100%; }
+        .btn-spy { background-color: #6200ea; color: white; box-shadow: 0 4px 0 #310075; }
+        .btn-reset { background-color: transparent; border: 1px solid #555; color: #aaa; font-size: 0.8rem; }
+
+        /* MODAL */
+        .modal {
+            display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            width: 100vw; height: 100vh; background: rgba(0,0,0,0.95); z-index: 9999;
+            flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 20px;
+        }
+        .modal.visible { display: flex; animation: fadeIn 0.3s; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        .modal h2 { font-size: 2.5rem; margin: 0 0 10px 0; text-transform: uppercase; text-shadow: 0 0 20px currentColor; }
+        .punishment-box {
+            background: #222; border: 2px solid #fff; padding: 20px; border-radius: 10px;
+            margin: 20px auto; width: 100%; max-width: 500px;
+        }
+        .punishment-title { color: #ff9800; font-weight: bold; font-size: 1.2rem; margin-bottom: 10px; display: block;}
+        .punishment-text { color: white; font-size: 1.5rem; font-weight: bold; }
+        
+        .hidalgo-mode .punishment-title { color: #ff0000; animation: blink 0.5s infinite; }
+        @keyframes blink { 50% { opacity: 0; } }
+
+        #offline-banner { background: #ff9800; color: black; padding: 5px; width: 100%; text-align: center; font-weight: bold; display: none; }
+
+        @media (max-width: 600px) {
+            #game-board { gap: 4px; aspect-ratio: auto; min-height: 55vh; }
+            .card { min-height: 50px; }
+            .scoreboard { width: 98%; padding: 5px; }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="offline-banner">⚠️ MODO DEMO (OFFLINE): Configura Firebase para jugar online.</div>
+
+    <header>
+        <div class="top-row">
+            <h1>CODENAMES <span style="color:var(--accent)">PORRINERO</span></h1>
+            <div class="room-input-group">
+                <input type="text" id="roomInput" placeholder="Sala" value="fiesta">
+                <button class="btn-mini" onclick="joinRoom()">Ir</button>
+                <button id="btnMute" class="btn-mini" onclick="toggleMute()">🔊</button>
+            </div>
+        </div>
+
+        <div class="scoreboard">
+            <div class="team-box">
+                <input type="text" id="redNameInput" class="team-name-input red-text" value="ROJO" onchange="updateTeamName('red', this.value)">
+                <span class="score-num red-text" id="scoreRed">-</span>
+            </div>
+            <span style="color:#555; font-size:1.5rem;">VS</span>
+            <div class="team-box">
+                <input type="text" id="blueNameInput" class="team-name-input blue-text" value="AZUL" onchange="updateTeamName('blue', this.value)">
+                <span class="score-num blue-text" id="scoreBlue">-</span>
+            </div>
+        </div>
+
+        <div class="turn-container">
+            <div id="turnBadge" class="turn-badge">Cargando...</div>
+            <button class="btn-pass" onclick="passTurn()">✋ Pasar</button>
+        </div>
+    </header>
+
+    <div id="game-board"></div>
+
+    <div class="floating-controls">
+        <button class="btn-big btn-spy" onclick="toggleSpy()">🕵️‍♂️ Modo Capitán</button>
+        <button class="btn-big btn-reset" onclick="confirmReset()">🔄 Nueva Partida</button>
+    </div>
+
+    <!-- MODAL GAME OVER -->
+    <div id="gameOverModal" class="modal">
+        <h2 id="winnerText">GANADOR</h2>
+        
+        <div id="punishmentBox" class="punishment-box">
+            <span class="punishment-title" id="punishmentLabel">CASTIGO PARA LOS PERDEDORES:</span>
+            <div class="punishment-text" id="punishmentText">Cargando castigo...</div>
+        </div>
+
+        <button class="btn-big btn-mini" style="margin-top:20px; background:#fff; color:#000; width:auto; padding: 15px 40px;" onclick="newGame()">Jugar Otra Vez</button>
+    </div>
+
+    <script>
+        // ==========================================
+        // 1. CONFIGURACIÓN FIREBASE
+        // ==========================================
+        const firebaseConfig = {
+  apiKey: "AIzaSyAGGbqNMV1gBeYonE2OpKaGf4TaNE9yj2c",
+  authDomain: "codename-porrinero.firebaseapp.com",
+  databaseURL: "https://codename-porrinero-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "codename-porrinero",
+  storageBucket: "codename-porrinero.firebasestorage.app",
+  messagingSenderId: "633422872254",
+  appId: "1:633422872254:web:80309dc33995c3e71f28ef"
+};
+
+        // ==========================================
+        // 2. LISTA DE CASTIGOS
+        // ==========================================
+        const PUNISHMENTS = [
+            "¡HIDALGO! Todo el equipo perdedor se acaba la copa.",
+            "Ronda de chupitos: Los ganadores eligen la botella.",
+            "CASTIGO A MEDIDA: Los ganadores deciden cuántos tragos (entre 3 y 8).",
+            "Beber 3 tragos largos.",
+            "Beber 5 tragos obligatorios.",
+            "Beberse media copa del tirón.",
+            "El Capitán del equipo perdedor debe hacerse un Hidalgo.",
+            "Beber sin usar las manos (3 tragos).",
+            "Trago doble para todo el equipo.",
+            "Los ganadores eligen: ¿Chupito o Hidalgo?",
+            "2 Tragos y rellenar la copa a tope.",
+            "Shot de Tequila (o lo más fuerte que haya)."
+        ];
+
+        // LISTA DE PALABRAS (428)
+        const WORD_LIST = [
+            "Profesor", "Pizarra", "Tiza", "Borrador", "Chuleta", "Examen", "Suspenso", "Aprobado", "Recreo", "Pasillo", 
+            "Baño", "Taquilla", "Gimnasio", "Chándal", "Autobús", "Comedor", "Bandeja", "Pelea", "Parte", "Expulsado", 
+            "Novillos", "Pellas", "Humo", "Esquina", "Banco", "Parque", "Litrona", "Pipas", "Portería", "Balón", "Delegado", 
+            "Empollón", "Chivato", "Notas", "Graduación", "Título", "Diploma", "Beca", "Verano", "Septiembre", "Garito", 
+            "VIP", "Reservado", "Cubata", "Hielo", "Tubo", "Chupito", "Jagger", "Tequila", "Limón", "Sal", "Barra", 
+            "Camarero", "Portero", "Gorila", "Sello", "Entrada", "Cola", "Lista", "Cachimba", "Carbón", "Vape", "Cigarro", 
+            "Mechero", "Cenicero", "Tragaperras", "Ruleta", "Ficha", "Póker", "As", "Rey", "Reina", "Jota", "Farol", 
+            "Apuesta", "Pleno", "Rojo", "Negro", "Par", "Impar", "Deuda", "Préstamo", "Ruina", "Ganar", "Perder", "Kebab", 
+            "Salsa", "Picante", "Taxi", "Uber", "Resaca", "Ibuprofeno", "Agua", "Suelo", "Vómito", "Amnesia", "After", 
+            "Sol", "Gafas", "Mancuerna", "Disco", "Barra", "Banco", "Espejo", "Selfie", "Foto", "Flash", "Postureo", 
+            "Músculo", "Bíceps", "Tríceps", "Pecho", "Pierna", "Culo", "Sentadilla", "Peso", "Kilos", "Proteína", "Batido", 
+            "Polvo", "Shaker", "Creatina", "Ciclo", "Aguja", "Pinchazo", "Volumen", "Definición", "Grasa", "Sudor", "Toalla", 
+            "Ducha", "Vestuario", "Sauna", "Monitor", "Entrenador", "Cuota", "Torno", "Tarjeta", "Tinder", "Bumble", "Match", 
+            "Like", "Superlike", "Fuego", "Chat", "Mensaje", "Visto", "Azul", "Bloqueado", "Stalker", "Pack", "Nudes", "Ex", 
+            "Novia", "Novio", "Cuernos", "Infiel", "Lealtad", "Celos", "Tóxico", "Tóxica", "Drama", "Llorar", "Boda", 
+            "Anillo", "Divorcio", "Suegra", "Cena", "Cine", "Película", "Palomitas", "Sofá", "Manta", "Cucharita", "Beso", 
+            "Pico", "Lengua", "Mordisco", "Marca", "Chupetón", "Cuello", "Gatillazo", "Mañanero", "Rapidito", "Orgasmo", 
+            "Preliminares", "69", "Mamada", "Francés", "Griego", "Corrida", "Trío", "Orgia", "Voyeur", "Fetiche", "BDSM", 
+            "Sadomaso", "Dominatrix", "Sumiso", "Rabo", "Polla", "Chocho", "Almeja", "Tetas", "Pezones", "Huevos", "Paquete", 
+            "Empotrador", "Pajillero", "MILF", "Sugar Daddy", "Actriz Porno", "Gigoló", "Virgen", "Salido", "Calentón", 
+            "Condón", "Vibrador", "Consolador", "Esposas", "Látigo", "Mordaza", "Lencería", "Tangas", "Lubricante", "Viagra", 
+            "Kamasutra", "Webcam", "Porno", "Puticlub", "Motel", "ETS", "Herpes", "Dinero", "Policía", "Coche", "Hotel", 
+            "Playa", "Noche", "Día", "Sucio", "Limpio", "Roto", "Nuevo", "Viejo", "Juego", "Suerte", "Muerte", "Santi", 
+            "Germán", "Iker", "Pablo", "Prieto", "ZP", "Nacho", "Carlos", "Jamie", "Andrea", "Javi", "Pelado", "Chufa", 
+            "Piña", "Zanahoria", "Panza", "Gordo", "Buzz Lightyear", "Flaco", "Tocho", "Pesado", "Aitana", "Ainhoa", "Nico", 
+            "Armario", "Calvo", "Niñas", "Bombas", "Bolonchos", "Quesito", "Víctor", "Raúl", "Cachondo", "Broti", "Chufalba", 
+            "Nhoa", "Lauricurri", "Claudia", "Laura", "Ainara", "Nerea", "Mateu", "Lucia", "Hidalgo", "Tete", "Rone", 
+            "Beethoven", "Onil", "Castalla", "Alcoy", "Ibi", "Benidorm", "Granada", "Zaragoza", "Pochinki", "Magisterio", 
+            "Local", "Futbolín", "Cuba", "Arge", "Bankales", "Chalet", "Tiki", "Apartamento", "Derramador", "Cervantes", 
+            "Marruecos", "Fortnite", "Clan", "Clash of Clans", "Minecraft", "Call of Duty", "GTA", "Ark", "FIFA", "Play", 
+            "Spiderman", "Porros", "Porreta", "Pocha", "Gay", "Perilla", "Bigote", "Furro", "Autista", "Pelar", "Bombero", 
+            "Porrín", "Porrinera", "Derrapar", "Halloween", "Carnaval", "Baloncesto", "Fútbol", "Cumpleaños", "Telepizza", 
+            "Chaqueta", "Castañas", "Guau", "Loco", "Militar", "Falange", "Pistola", "Funcionario", "Moros", "Okupa", 
+            "Katarsis", "Guarrindonga", "Racista", "Navaja", "Boca", "Higuera", "Paja", "Trompa", "Rap", "Reggaeton", 
+            "Perreo", "Inversión", "PSOE", "PP", "Vox", "Podemos", "Sumar", "Bildu", "Junts", "PNV", "Ciudadanos", 
+            "Sánchez", "Feijóo", "Abascal", "Ayuso", "Yolanda", "Puigdemont", "Alvise", "Irene", "Rajoy", "Aznar", "Anguita", 
+            "Franco", "Carrero", "República", "Dictadura", "Caudillo", "Guerra", "Transición", "Constitución", "Borbón", 
+            "Emérito", "Elecciones", "Urna", "Escaño", "Moción", "Amnistía", "Independencia", "Referéndum", "Lazo", "Menas", 
+            "Patera", "Frontera", "Valla", "Papeles", "Inmigrante", "Corrupción", "Gürtel", "Koldo", "Begoña", "Ábalos", 
+            "Mascarillas", "Falcon", "Perro", "Zurdo", "Facha", "Cayetano", "Vivienda", "Alquiler", "Hipoteca", "Desahucio", 
+            "España", "Bandera", "Himno"
+        ];
+
+        // ==========================================
+        // 3. LÓGICA DEL JUEGO
+        // ==========================================
+        let db;
+        let currentRoom = "fiesta";
+        let isSpymaster = false;
+        let localState = null;
+        let isMuted = localStorage.getItem('codenames_muted') === 'true';
+
+        // Inicializar botón de silencio
+        const muteBtn = document.getElementById('btnMute');
+        if(isMuted) {
+            muteBtn.innerText = "🔇";
+            muteBtn.classList.add('muted');
+        }
+
+        // Intentar conectar Firebase
+        try {
+            if (firebaseConfig.apiKey && firebaseConfig.apiKey.length > 5) {
+                firebase.initializeApp(firebaseConfig);
+                db = firebase.database();
+            } else {
+                document.getElementById('offline-banner').style.display = 'block';
+            }
+        } catch (e) { document.getElementById('offline-banner').style.display = 'block'; }
+
+        // --- SISTEMA DE SONIDOS (Usando Voz del Navegador) ---
+        function toggleMute() {
+            isMuted = !isMuted;
+            localStorage.setItem('codenames_muted', isMuted);
+            const btn = document.getElementById('btnMute');
+            if (isMuted) {
+                btn.innerText = "🔇";
+                btn.classList.add('muted');
+            } else {
+                btn.innerText = "🔊";
+                btn.classList.remove('muted');
+            }
+        }
+
+        function speak(text) {
+            if (isMuted) return;
+            if ('speechSynthesis' in window) {
+                const msg = new SpeechSynthesisUtterance(text);
+                msg.lang = 'es-ES';
+                msg.rate = 1.1; 
+                window.speechSynthesis.speak(msg);
+            }
+        }
+
+        function playSound(type) {
+            if (isMuted) return;
+            switch(type) {
+                case 'correct': speak("¡Correcto!"); break;
+                case 'error': 
+                    const insults = ["Vaya cagada", "Fallo garrafal", "Malísimo", "Cambio de turno paquete"];
+                    speak(insults[Math.floor(Math.random() * insults.length)]);
+                    break;
+                case 'win': speak("¡Victoria!"); break;
+                case 'assassin': speak("¡Oh Dios mío! Habéis matado a alguien. ¡Hidalgo obligatorio!"); break;
+            }
+        }
+
+        // --- GESTIÓN DE SALA ---
+        function joinRoom() {
+            const input = document.getElementById('roomInput').value;
+            if (!input) return;
+            currentRoom = input.toLowerCase().replace(/[^a-z0-9]/g, '');
+            
+            if (db) {
+                db.ref('rooms/' + currentRoom).on('value', (snapshot) => {
+                    const data = snapshot.val();
+                    if (data) updateUI(data);
+                    else newGame();
+                });
+                alert(`Conectado a: ${currentRoom}`);
+            } else {
+                alert(`MODO OFFLINE en: ${currentRoom}`);
+                if(!localState) newGame();
+                else updateUI(localState);
+            }
+        }
+
+        function newGame() {
+            const shuffledWords = [...WORD_LIST].sort(() => 0.5 - Math.random()).slice(0, 25);
+            const redStarts = Math.random() < 0.5;
+            const startTeam = redStarts ? 'red' : 'blue';
+
+            let colors = [];
+            colors = colors.concat(Array(9).fill(startTeam));
+            colors = colors.concat(Array(8).fill(redStarts ? 'blue' : 'red'));
+            colors = colors.concat(Array(1).fill('black'));
+            colors = colors.concat(Array(7).fill('neutral'));
+            colors.sort(() => 0.5 - Math.random());
+
+            const state = {
+                words: shuffledWords,
+                colors: colors,
+                revealed: Array(25).fill(false),
+                turn: startTeam,
+                winner: null,
+                winType: null, 
+                punishment: null, 
+                teamRedName: "ROJO",
+                teamBlueName: "AZUL",
+                timestamp: Date.now()
+            };
+
+            if (db) db.ref('rooms/' + currentRoom).set(state);
+            else { localState = state; updateUI(localState); }
+            
+            document.body.classList.remove('shake-screen');
+            document.getElementById('gameOverModal').classList.remove('visible');
+        }
+
+        function updateUI(state) {
+            renderBoard(state);
+            updateScoreboard(state);
+            
+            if (state.winner) showWinner(state);
+            else document.getElementById('gameOverModal').classList.remove('visible');
+        }
+
+        function renderBoard(state) {
+            const board = document.getElementById('game-board');
+            board.innerHTML = ''; 
+
+            state.words.forEach((word, index) => {
+                const card = document.createElement('div');
+                const color = state.colors[index];
+                const isRevealed = state.revealed[index];
+
+                card.className = `card ${color}`;
+                if (isRevealed) card.classList.add('revealed');
+                card.innerText = word;
+                card.onclick = () => handleCardClick(index, state);
+                board.appendChild(card);
+            });
+        }
+
+        function updateScoreboard(state) {
+            const redInput = document.getElementById('redNameInput');
+            const blueInput = document.getElementById('blueNameInput');
+            
+            if (document.activeElement !== redInput) redInput.value = state.teamRedName || "ROJO";
+            if (document.activeElement !== blueInput) blueInput.value = state.teamBlueName || "AZUL";
+
+            let redLeft = 0;
+            let blueLeft = 0;
+            state.colors.forEach((c, i) => {
+                if (!state.revealed[i]) {
+                    if (c === 'red') redLeft++;
+                    if (c === 'blue') blueLeft++;
+                }
+            });
+
+            document.getElementById('scoreRed').innerText = redLeft;
+            document.getElementById('scoreBlue').innerText = blueLeft;
+
+            const currentTeamName = state.turn === 'red' ? (state.teamRedName || "ROJO") : (state.teamBlueName || "AZUL");
+            const badge = document.getElementById('turnBadge');
+            badge.innerText = `TURNO: ${currentTeamName}`;
+            badge.style.color = state.turn === 'red' ? '#ff8a80' : '#82b1ff';
+            badge.style.border = `1px solid ${state.turn === 'red' ? 'red' : 'blue'}`;
+        }
+
+        function updateTeamName(team, newName) {
+            if (db) {
+                const field = team === 'red' ? 'teamRedName' : 'teamBlueName';
+                db.ref('rooms/' + currentRoom).update({ [field]: newName.toUpperCase() });
+            } else {
+                if (team === 'red') localState.teamRedName = newName.toUpperCase();
+                else localState.teamBlueName = newName.toUpperCase();
+                updateUI(localState);
+            }
+        }
+
+        function handleCardClick(index, state) {
+            if (state.revealed[index] || state.winner) return;
+            if (isSpymaster && !confirm("⚠️ ¿Revelar?")) return;
+
+            const cardColor = state.colors[index];
+            let nextTurn = state.turn;
+            let winner = null;
+            let winType = null;
+
+            // 1. Simular qué pasaría si revelamos esta carta
+            // Calculamos los puntos ANTES de enviar a la DB para detectar victoria inmediata
+            let redLeft = 0;
+            let blueLeft = 0;
+            state.colors.forEach((c, i) => {
+                const effectivelyRevealed = state.revealed[i] || (i === index);
+                if (!effectivelyRevealed) {
+                    if (c === 'red') redLeft++;
+                    if (c === 'blue') blueLeft++;
+                }
+            });
+
+            // 2. Lógica de Victoria / Derrota
+            if (cardColor === 'black') {
+                playSound('assassin');
+                winner = state.turn === 'red' ? 'blue' : 'red';
+                winType = 'death';
+            } 
+            else {
+                // Si llegamos a 0 cartas, GANAMOS
+                if (redLeft === 0) {
+                    winner = 'red';
+                    winType = 'score';
+                    playSound('win');
+                } else if (blueLeft === 0) {
+                    winner = 'blue';
+                    winType = 'score';
+                    playSound('win');
+                } else if (cardColor === state.turn) {
+                    // Acierto pero quedan más
+                    playSound('correct');
+                } else {
+                    // Fallo
+                    playSound('error');
+                    nextTurn = state.turn === 'red' ? 'blue' : 'red';
+                }
+            }
+
+            // 3. Guardar todo junto en la DB
+            if (db) {
+                const updates = {};
+                updates['/revealed/' + index] = true;
+                updates['/turn'] = nextTurn;
+                if (winner) {
+                    updates['/winner'] = winner;
+                    updates['/winType'] = winType;
+                    if (winType === 'death') updates['/punishment'] = "💀 HIDALGO OBLIGATORIO PARA TODO EL EQUIPO 💀";
+                    else updates['/punishment'] = PUNISHMENTS[Math.floor(Math.random() * PUNISHMENTS.length)];
+                }
+                db.ref('rooms/' + currentRoom).update(updates);
+            } else {
+                localState.revealed[index] = true;
+                localState.turn = nextTurn;
+                if (winner) {
+                    localState.winner = winner;
+                    localState.winType = winType;
+                    if (winType === 'death') localState.punishment = "💀 HIDALGO OBLIGATORIO PARA TODO EL EQUIPO 💀";
+                    else localState.punishment = PUNISHMENTS[Math.floor(Math.random() * PUNISHMENTS.length)];
+                }
+                updateUI(localState);
+            }
+        }
+
+        function passTurn() {
+            if (db) {
+                db.ref('rooms/' + currentRoom).once('value').then(s => {
+                    const state = s.val();
+                    if(!state.winner) {
+                        const next = state.turn === 'red' ? 'blue' : 'red';
+                        db.ref('rooms/' + currentRoom).update({ turn: next });
+                        speak("Pasan turno. Cobardes.");
+                    }
+                });
+            } else {
+                localState.turn = localState.turn === 'red' ? 'blue' : 'red';
+                speak("Pasan turno.");
+                updateUI(localState);
+            }
+        }
+
+        function showWinner(state) {
+            const modal = document.getElementById('gameOverModal');
+            const wText = document.getElementById('winnerText');
+            const pText = document.getElementById('punishmentText');
+            const pBox = document.getElementById('punishmentBox');
+
+            modal.classList.add('visible');
+            
+            const winnerName = state.winner === 'red' ? (state.teamRedName || "ROJO") : (state.teamBlueName || "AZUL");
+            wText.innerText = "GANADORES: " + winnerName;
+            wText.style.color = state.winner === 'red' ? "var(--card-red)" : "var(--card-blue)";
+
+            pText.innerText = state.punishment || "Cargando castigo...";
+
+            if (state.winType === 'death') {
+                document.body.classList.add('shake-screen'); 
+                pBox.classList.add('hidalgo-mode');
+            } else {
+                document.body.classList.remove('shake-screen');
+                pBox.classList.remove('hidalgo-mode');
+            }
+        }
+
+        function toggleSpy() {
+            isSpymaster = !isSpymaster;
+            document.body.classList.toggle('spymaster');
+        }
+
+        function confirmReset() {
+            if(confirm("¿Seguro que quieres reiniciar la partida?")) newGame();
+        }
+
+        window.onload = joinRoom;
+    </script>
+</body>
+</html>
